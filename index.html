@@ -1,0 +1,382 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#171c27">
+  <meta name="description" content="An explainable AI demo for student performance prediction using SHAP and LIME.">
+
+  <title>EduLens | Student Performance AI</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="style.css">
+  <script src="script.js" defer></script>
+</head>
+
+
+<body data-theme="light">
+  <div class="app-shell">
+
+    <!-- Header -->
+    <header class="topbar">
+      <a class="brand" href="#" aria-label="EduLens home">
+        <span class="brand-icon">E</span>
+        <span class="brand-copy">
+          <strong>EduLens</strong>
+          <small>EXPLAINABLE AI</small>
+        </span>
+      </a>
+
+      <div class="header-actions">
+        <span class="status-indicator">
+          <span class="status-dot"></span>
+          AI DEMO
+        </span>
+
+        <button
+          id="themeToggle"
+          class="theme-toggle"
+          type="button"
+          aria-label="Switch to dark mode"
+          aria-pressed="false"
+        >
+          <span id="themeIcon" aria-hidden="true">☾</span>
+          <span id="themeLabel">Dark mode</span>
+        </button>
+      </div>
+    </header>
+
+    <main>
+      <!-- Introduction -->
+      <section class="hero">
+        <div class="hero-copy">
+          <div class="eyebrow">
+            <span class="eyebrow-line"></span>
+            STUDENT SUCCESS ANALYTICS
+          </div>
+
+          <h1>
+            Understand performance.<br>
+            <span>Improve outcomes.</span>
+          </h1>
+
+          <p class="hero-description">
+            Predict student marks using machine learning and discover
+            which factors influence each prediction with SHAP and LIME.
+          </p>
+
+          <div class="hero-points">
+            <span><span class="check-icon">✓</span> Machine learning</span>
+            <span><span class="check-icon">✓</span> Explainable results</span>
+          </div>
+        </div>
+
+        <aside class="hero-note">
+          <div class="note-icon">✳</div>
+          <div>
+            <strong>More than a prediction</strong>
+            <p>Explore the factors behind each result, not just the final score.</p>
+          </div>
+        </aside>
+      </section>
+
+      <!-- Main dashboard -->
+      <section class="dashboard">
+
+        <!-- Student input panel -->
+        <section class="panel input-panel">
+          <div class="panel-heading">
+            <div>
+              <span class="section-kicker">STEP 01</span>
+              <h2>Student details</h2>
+              <p>Enter the student's academic and lifestyle information.</p>
+            </div>
+            <span class="heading-icon">↗</span>
+          </div>
+
+          <form id="predictionForm">
+            <div class="field">
+              <div class="field-heading">
+                <label for="study_hours">Daily study hours</label>
+                <span class="field-unit">HOURS / DAY</span>
+              </div>
+              <input
+                type="number"
+                id="study_hours"
+                name="study_hours"
+                min="0"
+                max="10"
+                step="0.5"
+                placeholder="e.g. 6"
+                required
+              >
+              <small>Enter a value between 0 and 10 hours.</small>
+            </div>
+
+            <div class="field">
+              <div class="field-heading">
+                <label for="attendance">Attendance</label>
+                <span class="field-unit">PERCENTAGE</span>
+              </div>
+              <input
+                type="number"
+                id="attendance"
+                name="attendance"
+                min="0"
+                max="100"
+                step="1"
+                placeholder="e.g. 85"
+                required
+              >
+            </div>
+
+            <div class="field">
+              <div class="field-heading">
+                <label for="previous_score">Previous exam score</label>
+                <span class="field-unit">OUT OF 100</span>
+              </div>
+              <input
+                type="number"
+                id="previous_score"
+                name="previous_score"
+                min="0"
+                max="100"
+                step="0.5"
+                placeholder="e.g. 75"
+                required
+              >
+            </div>
+
+            <div class="field">
+              <div class="field-heading">
+                <label for="assignment_score">Assignment score</label>
+                <span class="field-unit">OUT OF 100</span>
+              </div>
+              <input
+                type="number"
+                id="assignment_score"
+                name="assignment_score"
+                min="0"
+                max="100"
+                step="0.5"
+                placeholder="e.g. 80"
+                required
+              >
+            </div>
+
+            <div class="field">
+              <div class="field-heading">
+                <label for="sleep_hours">Daily sleep</label>
+                <span class="field-unit">HOURS / DAY</span>
+              </div>
+              <input
+                type="number"
+                id="sleep_hours"
+                name="sleep_hours"
+                min="0"
+                max="24"
+                step="0.5"
+                placeholder="e.g. 8"
+                required
+              >
+            </div>
+
+            <button type="submit" id="predictButton" class="primary-button">
+              <span aria-hidden="true">✳</span>
+              Predict performance
+              <span class="button-arrow" aria-hidden="true">→</span>
+            </button>
+
+            <p class="form-footnote">
+              <span aria-hidden="true">🔒</span>
+              Your inputs are processed by your local demo backend.
+            </p>
+          </form>
+        </section>
+
+        <!-- Prediction result panel -->
+        <section class="panel result-panel">
+          <div class="panel-heading">
+            <div>
+              <span class="section-kicker">STEP 02</span>
+              <h2>Prediction overview</h2>
+              <p>Your estimated academic performance.</p>
+            </div>
+
+            <span id="resultBadge" class="result-badge">Awaiting input</span>
+          </div>
+
+          <div class="score-card">
+            <div class="score-topline">
+              <span class="score-label">PREDICTED MARKS</span>
+              <span class="score-symbol">↗</span>
+            </div>
+
+            <div class="score-number">
+              <span id="score">—</span>
+              <span class="score-out-of">/ 100</span>
+            </div>
+
+            <div class="score-progress">
+              <div
+                id="scoreBar"
+                class="score-progress-fill"
+                role="progressbar"
+                aria-label="Predicted marks"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-valuenow="0"
+              ></div>
+            </div>
+
+            <div class="score-bottomline">
+              <span>Estimated score</span>
+              <strong id="scorePercent">—</strong>
+            </div>
+          </div>
+
+          <div class="performance-summary">
+            <div class="summary-icon">◎</div>
+            <div>
+              <span class="summary-label">PERFORMANCE CATEGORY</span>
+              <h3 id="category">Waiting for prediction</h3>
+              <p id="resultMessage" role="status" aria-live="polite">
+                Enter the details and select Predict performance to begin.
+              </p>
+            </div>
+          </div>
+
+          <div class="suggestions-section">
+            <div class="subsection-heading">
+              <span class="subsection-icon">✦</span>
+              <h3>Recommended next steps</h3>
+            </div>
+
+            <ul id="suggestions" class="suggestion-list">
+              <li>Your personalized recommendations will appear here.</li>
+            </ul>
+          </div>
+        </section>
+      </section>
+
+      <!-- Explainability -->
+      <section class="explain-section">
+        <div class="section-intro">
+          <div>
+            <span class="section-kicker">STEP 03</span>
+            <h2>Understand the prediction</h2>
+            <p>
+              See how individual input features influence the model's result.
+            </p>
+          </div>
+
+          <span class="explain-tag">SHAP + LIME</span>
+        </div>
+
+        <div class="explanation-grid">
+          <article class="panel explanation-panel">
+            <div class="explanation-heading">
+              <div class="explanation-icon shap-icon">S</div>
+              <div>
+                <h3>SHAP explanation</h3>
+                <p>Feature contributions to the prediction.</p>
+              </div>
+            </div>
+
+            <div class="legend">
+              <span><i class="legend-dot positive-dot"></i> Positive contribution</span>
+              <span><i class="legend-dot negative-dot"></i> Negative contribution</span>
+            </div>
+
+            <div id="shapChart" class="chart-container" aria-live="polite">
+              <div class="empty-state">
+                <span class="empty-icon">⌁</span>
+                <strong>SHAP analysis will appear here</strong>
+                <p>Run a prediction to explore feature contributions.</p>
+              </div>
+            </div>
+
+            <p class="chart-footnote">
+              Positive values push the prediction higher; negative values push it lower.
+            </p>
+          </article>
+
+          <article class="panel explanation-panel">
+            <div class="explanation-heading">
+              <div class="explanation-icon lime-icon">L</div>
+              <div>
+                <h3>LIME explanation</h3>
+                <p>Local explanation for this individual prediction.</p>
+              </div>
+            </div>
+
+            <div class="legend">
+              <span><i class="legend-dot positive-dot"></i> Positive contribution</span>
+              <span><i class="legend-dot negative-dot"></i> Negative contribution</span>
+            </div>
+
+            <div id="limeChart" class="chart-container" aria-live="polite">
+              <div class="empty-state">
+                <span class="empty-icon">⌁</span>
+                <strong>LIME analysis will appear here</strong>
+                <p>Run a prediction to see the local explanation.</p>
+              </div>
+            </div>
+
+            <p class="chart-footnote">
+              LIME approximates model behaviour around the current input.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <!-- Methodology -->
+      <section class="methodology">
+        <div class="methodology-heading">
+          <span class="section-kicker">ABOUT THIS PROJECT</span>
+          <h2>Transparent AI, explained simply.</h2>
+        </div>
+
+        <div class="method-grid">
+          <article class="method-item">
+            <span class="method-number">01</span>
+            <h3>Machine learning</h3>
+            <p>A Random Forest model estimates a student's marks from five input features.</p>
+          </article>
+
+          <article class="method-item">
+            <span class="method-number">02</span>
+            <h3>SHAP</h3>
+            <p>Shows how each feature contributes to a prediction relative to the model's baseline.</p>
+          </article>
+
+          <article class="method-item">
+            <span class="method-number">03</span>
+            <h3>LIME</h3>
+            <p>Builds a local approximation to help explain the model's behaviour for one input.</p>
+          </article>
+        </div>
+      </section>
+
+      <div class="demo-disclaimer">
+        <span class="disclaimer-icon">ⓘ</span>
+        <p>
+          <strong>Demo limitation:</strong>
+          This project currently uses synthetic data. Predictions and recommendations
+          are for educational demonstration only and are not validated for real student assessment.
+        </p>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <a class="footer-brand" href="#">EduLens</a>
+      <span>Explainable AI · Student Performance Prediction</span>
+      <span>Built for learning</span>
+    </footer>
+  </div>
+</body>
+</html>
