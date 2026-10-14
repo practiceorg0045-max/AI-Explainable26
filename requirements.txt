@@ -1,0 +1,10 @@
+
+Flask
+Flask-Cors
+gunicorn
+joblib
+numpy
+pandas
+scikit-learn
+shap
+lime
