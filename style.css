@@ -13,9 +13,9 @@
 }
 
 body.light {
-  --bg: #f3f6fc;
+  --bg: #dedcdc;
   --panel: #fff;
-  --field: #f7f9fd;
+  --field: #d2d2d4;
   --text: #18243a;
   --muted: #65738b;
   --border: #e0e6f0;
