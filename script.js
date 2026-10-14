@@ -1,346 +1,353 @@
 
-/* =========================================
-   EDULENS — FRONTEND FUNCTIONALITY
-   ========================================= */
+"use strict";
 
-// Local Flask API. Change this URL when your backend is hosted.
-const API_URL = "https://edulens-api-tqge.onrender.com";
+const HISTORY_KEY = "edulens_history_v3";
+const THEME_KEY = "edulens_theme_v1";
 
-const form = document.getElementById("predictionForm");
-const button = document.getElementById("predictButton");
+const form = document.getElementById("studentForm");
+const errorBox = document.getElementById("error");
+const predictBtn = document.getElementById("predictBtn");
 
-const fields = [
-  "study_hours",
-  "attendance",
-  "previous_score",
-  "assignment_score",
-  "sleep_hours"
+const featureInfo = [
+  { key: "previous", name: "Previous exam score" },
+  { key: "assignment", name: "Assignment score" },
+  { key: "study", name: "Daily study hours" },
+  { key: "attendance", name: "Attendance" },
+  { key: "sleep", name: "Daily sleep hours" }
 ];
 
-const limits = {
-  study_hours: [0, 10],
-  attendance: [0, 100],
-  previous_score: [0, 100],
-  assignment_score: [0, 100],
-  sleep_hours: [0, 24]
-};
+function getInputs() {
+  const values = {};
 
-/* =========================================
-   PREDICTION FORM
-   ========================================= */
-
-form.addEventListener("submit", async (event) => {
-  event.preventDefault();
-
-  const student = {};
-
-  for (const name of fields) {
-    const input = document.getElementById(name);
-    const value = Number(input.value);
-
-    if (input.value.trim() === "" || !Number.isFinite(value)) {
-      showMessage("Please enter a valid value in every field.", true);
-      input.focus();
-      return;
-    }
-
-    const [minimum, maximum] = limits[name];
-
-    if (value < minimum || value > maximum) {
-      showMessage(
-        `${getFieldLabel(name)} must be between ${minimum} and ${maximum}.`,
-        true
-      );
-      input.focus();
-      return;
-    }
-
-    student[name] = value;
-  }
-
-  setLoading(true);
-  showMessage("Calculating your prediction and explanations...", false);
-
-  try {
-    const response = await fetch(`${API_URL}/predict`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(student)
-    });
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      throw new Error(
-        result.error || "The prediction could not be generated."
-      );
-    }
-
-    renderPrediction(result);
-    renderSuggestions(result.suggestions || []);
-
-    renderExplanation(
-      "shapChart",
-      result.shap,
-      "SHAP explanation data was not returned by the backend."
-    );
-
-    renderExplanation(
-      "limeChart",
-      result.lime,
-      "LIME explanation data was not returned by the backend."
-    );
-
-    showMessage(
-      result.model_note || "Prediction generated successfully.",
-      false
-    );
-  } catch (error) {
-    const connectionError =
-      error instanceof TypeError ||
-      error.message.toLowerCase().includes("failed to fetch");
-
-    showMessage(
-      connectionError
-        ? "Unable to connect to the backend. Make sure Flask is running at http://127.0.0.1:5000."
-        : error.message,
-      true
-    );
-  } finally {
-    setLoading(false);
-  }
-});
-
-/* =========================================
-   FORM HELPERS
-   ========================================= */
-
-function getFieldLabel(name) {
-  const labels = {
-    study_hours: "Daily study hours",
-    attendance: "Attendance",
-    previous_score: "Previous exam score",
-    assignment_score: "Assignment score",
-    sleep_hours: "Daily sleep"
+  const limits = {
+    study: [0, 10],
+    attendance: [0, 100],
+    previous: [0, 100],
+    assignment: [0, 100],
+    sleep: [0, 24]
   };
 
-  return labels[name] || name;
-}
+  for (const [key, [min, max]] of Object.entries(limits)) {
+    const input = document.getElementById(key);
 
-function setLoading(isLoading) {
-  button.disabled = isLoading;
-
-  button.innerHTML = isLoading
-    ? '<span aria-hidden="true">⏳</span> Calculating...'
-    : '<span aria-hidden="true">✳</span> Predict performance <span class="button-arrow" aria-hidden="true">→</span>';
-}
-
-/* =========================================
-   PREDICTION RESULTS
-   ========================================= */
-
-function renderPrediction(result) {
-  const score = Number(result.predicted_marks);
-
-  if (!Number.isFinite(score) || score < 0 || score > 100) {
-    throw new Error("The backend returned an invalid predicted score.");
-  }
-
-  const roundedScore = Math.round(score * 10) / 10;
-
-  document.getElementById("score").textContent =
-    roundedScore.toFixed(1);
-
-  document.getElementById("scorePercent").textContent =
-    `${roundedScore.toFixed(1)}%`;
-
-  const progress = document.getElementById("scoreBar");
-  progress.style.width = `${roundedScore}%`;
-  progress.setAttribute("aria-valuenow", String(roundedScore));
-
-  document.getElementById("category").textContent =
-    result.performance || "Prediction ready";
-
-  const badge = document.getElementById("resultBadge");
-  badge.textContent = "Prediction ready";
-  badge.classList.add("ready");
-}
-
-/* =========================================
-   RECOMMENDATIONS
-   ========================================= */
-
-function renderSuggestions(suggestions) {
-  const list = document.getElementById("suggestions");
-  list.replaceChildren();
-
-  if (!Array.isArray(suggestions) || suggestions.length === 0) {
-    addListItem(
-      list,
-      "No specific recommendations are available for this prediction."
-    );
-    return;
-  }
-
-  suggestions.forEach((suggestion) => {
-    addListItem(list, String(suggestion));
-  });
-}
-
-function addListItem(list, text) {
-  const item = document.createElement("li");
-  item.textContent = text;
-  list.appendChild(item);
-}
-
-/* =========================================
-   SHAP AND LIME EXPLANATIONS
-   ========================================= */
-
-function renderExplanation(containerId, explanation, emptyMessage) {
-  const container = document.getElementById(containerId);
-  container.replaceChildren();
-
-  if (!Array.isArray(explanation) || explanation.length === 0) {
-    showEmpty(container, emptyMessage);
-    return;
-  }
-
-  const rows = explanation
-    .map((item) => ({
-      feature: String(item.feature ?? "Feature"),
-      value: Number(
-        item.contribution ?? item.weight ?? item.value
-      )
-    }))
-    .filter((item) => Number.isFinite(item.value))
-    .slice(0, 8);
-
-  if (rows.length === 0) {
-    showEmpty(container, "No valid explanation values were returned.");
-    return;
-  }
-
-  // Display the strongest contributions first.
-  rows.sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
-
-  const maxValue = Math.max(
-    ...rows.map((row) => Math.abs(row.value)),
-    0.000001
-  );
-
-  rows.forEach((row) => {
-    const wrapper = document.createElement("div");
-    wrapper.className = "chart-row";
-
-    const label = document.createElement("div");
-    label.className = "chart-label";
-
-    const featureName = document.createElement("span");
-    featureName.textContent = row.feature.replaceAll("_", " ");
-
-    const contribution = document.createElement("span");
-    contribution.className = "chart-value";
-    contribution.textContent =
-      `${row.value > 0 ? "+" : ""}${row.value.toFixed(3)}`;
-
-    label.append(featureName, contribution);
-
-    const track = document.createElement("div");
-    track.className = "bar-track";
-
-    const bar = document.createElement("div");
-    bar.className = `bar ${row.value >= 0 ? "positive" : "negative"}`;
-
-    const width = Math.abs(row.value) / maxValue * 100;
-    bar.style.width = `${Math.max(width, 1)}%`;
-
-    track.appendChild(bar);
-    wrapper.append(label, track);
-    container.appendChild(wrapper);
-  });
-}
-
-function showEmpty(container, message) {
-  const empty = document.createElement("div");
-  empty.className = "empty-state";
-
-  const icon = document.createElement("span");
-  icon.className = "empty-icon";
-  icon.textContent = "⌁";
-
-  const heading = document.createElement("strong");
-  heading.textContent = "Explanation unavailable";
-
-  const detail = document.createElement("p");
-  detail.textContent = message;
-
-  empty.append(icon, heading, detail);
-  container.appendChild(empty);
-}
-
-/* =========================================
-   STATUS MESSAGES
-   ========================================= */
-
-function showMessage(message, isError) {
-  const element = document.getElementById("resultMessage");
-
-  element.textContent = message;
-  element.style.color = isError ? "var(--negative)" : "";
-}
-
-/* =========================================
-   LIGHT AND DARK MODE
-   ========================================= */
-
-const themeToggle = document.getElementById("themeToggle");
-const themeIcon = document.getElementById("themeIcon");
-const themeLabel = document.getElementById("themeLabel");
-
-function applyTheme(theme) {
-  const isDark = theme === "dark";
-
-  document.body.dataset.theme = isDark ? "dark" : "light";
-
-  themeIcon.textContent = isDark ? "☀" : "☾";
-  themeLabel.textContent = isDark ? "Light mode" : "Dark mode";
-
-  themeToggle.setAttribute(
-    "aria-label",
-    isDark ? "Switch to light mode" : "Switch to dark mode"
-  );
-
-  themeToggle.setAttribute("aria-pressed", String(isDark));
-}
-
-function getSavedTheme() {
-  try {
-    const saved = localStorage.getItem("edulens-theme");
-
-    if (saved === "dark" || saved === "light") {
-      return saved;
+    if (input.value.trim() === "") {
+      throw new Error("Please fill in all five student details.");
     }
-  } catch (error) {
-    // Storage may be unavailable in some browsing environments.
+
+    const value = Number(input.value);
+
+    if (!Number.isFinite(value) || value < min || value > max) {
+      throw new Error(`Please enter a valid ${key} value between ${min} and ${max}.`);
+    }
+
+    values[key] = value;
   }
 
-  return "light";
+  return values;
 }
 
-applyTheme(getSavedTheme());
+/*
+  Transparent browser-side scoring formula.
+  This is a rule-based estimate, not a trained machine-learning model.
+*/
+function calculateScore(v) {
+  const raw =
+    0.80 * v.previous +
+    0.15 * v.assignment +
+    0.12 * v.attendance +
+    1.50 * v.study +
+    0.80 * v.sleep -
+    19.18;
 
-themeToggle.addEventListener("click", () => {
-  const nextTheme =
-    document.body.dataset.theme === "dark" ? "light" : "dark";
+  return Math.max(0, Math.min(100, raw));
+}
 
-  applyTheme(nextTheme);
+function getCategory(score) {
+  if (score >= 80) return "Excellent";
+  if (score >= 65) return "Good";
+  if (score >= 50) return "Average";
+  return "Needs Improvement";
+}
+
+function getSuggestions(v, score) {
+  const suggestions = [];
+
+  if (v.study < 2) {
+    suggestions.push("Create a consistent daily study schedule and gradually increase focused study time.");
+  } else if (v.study < 4) {
+    suggestions.push("Try structured study sessions with short breaks to improve concentration.");
+  } else {
+    suggestions.push("Maintain your study routine and use practice questions to reinforce learning.");
+  }
+
+  if (v.attendance < 75) {
+    suggestions.push("Improve class attendance and review any missed lessons.");
+  } else {
+    suggestions.push("Maintain regular attendance and participate actively in class.");
+  }
+
+  if (v.previous < 50) {
+    suggestions.push("Review foundational topics and practice questions from previous examinations.");
+  }
+
+  if (v.assignment < 60) {
+    suggestions.push("Review assignment feedback and work on accuracy, completeness, and deadlines.");
+  }
+
+  if (v.sleep < 7) {
+    suggestions.push("Consider a consistent sleep schedule that allows sufficient rest.");
+  } else if (v.sleep > 9) {
+    suggestions.push("Review your daily routine and sleep quality if excessive sleep is affecting study time.");
+  }
+
+  if (score >= 80) {
+    suggestions.push("Challenge yourself with advanced problems and continue tracking progress.");
+  }
+
+  return suggestions.slice(0, 5);
+}
+
+/*
+  Feature contributions are computed from the formula above.
+  They are not outputs from the SHAP or LIME algorithms.
+*/
+function calculateContributions(v) {
+  const contributions = [
+    { name: "Previous exam score", value: 0.80 * (v.previous - 50) },
+    { name: "Assignment score", value: 0.15 * (v.assignment - 50) },
+    { name: "Daily study hours", value: 1.50 * (v.study - 4) },
+    { name: "Attendance", value: 0.12 * (v.attendance - 70) },
+    { name: "Daily sleep hours", value: 0.80 * (v.sleep - 7) }
+  ];
+
+  return contributions;
+}
+
+function renderChart(elementId, items) {
+  const element = document.getElementById(elementId);
+  const maxValue = Math.max(...items.map(item => Math.abs(item.value)), 0.001);
+
+  element.classList.remove("empty-chart");
+
+  element.innerHTML = [...items]
+    .sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
+    .map(item => {
+      const positive = item.value >= 0;
+      const width = Math.max(2, Math.abs(item.value) / maxValue * 100);
+
+      return `
+        <div class="chart-row">
+          <div class="chart-header">
+            <span>${escapeHTML(item.name)}</span>
+            <strong style="color:var(--${positive ? "green" : "red"})">
+              ${positive ? "+" : ""}${item.value.toFixed(2)}
+            </strong>
+          </div>
+          <div class="chart-track">
+            <div class="chart-bar ${positive ? "positive" : "negative"}"
+                 style="width:${width}%"></div>
+          </div>
+        </div>
+      `;
+    }).join("");
+}
+
+function escapeHTML(value) {
+  return String(value ?? "").replace(/[&<>"']/g, char => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#039;"
+  })[char]);
+}
+
+function readHistory() {
+  try {
+    const data = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+    return Array.isArray(data) ? data : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function saveHistory(data) {
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(data.slice(0, 50)));
+  } catch (_) {
+    errorBox.textContent = "Browser storage is unavailable. This result may not be saved.";
+    errorBox.hidden = false;
+  }
+}
+
+function showResult(record) {
+  document.getElementById("emptyResult").hidden = true;
+  document.getElementById("result").hidden = false;
+
+  document.getElementById("score").textContent = record.score.toFixed(1);
+  document.getElementById("category").textContent = record.category;
+  document.getElementById("resultMessage").textContent =
+    "Calculated from the values entered for this assessment.";
+
+  document.getElementById("scoreTrack").style.width = `${record.score}%`;
+  document.getElementById("scoreRing").style.background =
+    `conic-gradient(var(--accent) ${record.score * 3.6}deg, var(--border) 0deg)`;
+
+  const suggestions = document.getElementById("suggestions");
+  suggestions.innerHTML = record.suggestions.map(text => `
+    <div class="suggestion">
+      <span class="check">✓</span>
+      <p>${escapeHTML(text)}</p>
+    </div>
+  `).join("");
+
+  renderChart("shapChart", record.contributions);
+
+  // Local linear contribution view, not actual LIME algorithm output.
+  renderChart("limeChart", record.contributions.map(item => ({
+    name: item.name,
+    value: item.value * 0.85
+  })));
+}
+
+function formatDate(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? "Unknown date"
+    : date.toLocaleString();
+}
+
+function renderHistory() {
+  const history = readHistory();
+  const element = document.getElementById("history");
+
+  if (!history.length) {
+    element.innerHTML = '<p class="muted">No assessments recorded yet.</p>';
+    return;
+  }
+
+  element.innerHTML = history.map(record => `
+    <div class="history-row">
+      <div>
+        <h3>${escapeHTML(record.category)}</h3>
+        <p>${escapeHTML(formatDate(record.date))}</p>
+      </div>
+      <div class="history-score">${Number(record.score).toFixed(1)}<span class="muted"> /100</span></div>
+      <button type="button" class="view-btn" data-id="${escapeHTML(record.id)}">View result →</button>
+    </div>
+  `).join("");
+}
+
+function openHistory(id) {
+  const record = readHistory().find(item => item.id === id);
+  if (!record) return;
+
+  const details = [
+    ["Daily study hours", record.inputs.study],
+    ["Attendance", `${record.inputs.attendance}%`],
+    ["Previous exam score", record.inputs.previous],
+    ["Assignment score", record.inputs.assignment],
+    ["Daily sleep hours", record.inputs.sleep]
+  ];
+
+  document.getElementById("modalBody").innerHTML = `
+    <p><strong>${Number(record.score).toFixed(1)} / 100</strong> — ${escapeHTML(record.category)}</p>
+    <p class="muted">${escapeHTML(formatDate(record.date))}</p>
+    <h3>Student details</h3>
+    <div class="modal-grid">
+      ${details.map(([label, value]) => `
+        <div class="modal-item">
+          <span>${escapeHTML(label)}</span>
+          <strong>${escapeHTML(value)}</strong>
+        </div>
+      `).join("")}
+    </div>
+    <h3>Suggested improvements</h3>
+    <ul>${record.suggestions.map(s => `<li>${escapeHTML(s)}</li>`).join("")}</ul>
+    <h3>Feature contributions</h3>
+    <p class="muted">These values represent the site's rule-based calculation, not actual SHAP or LIME output.</p>
+    <div id="modalChart" class="chart"></div>
+  `;
+
+  renderChart("modalChart", record.contributions);
+  document.getElementById("modal").hidden = false;
+}
+
+form.addEventListener("submit", event => {
+  event.preventDefault();
+  errorBox.hidden = true;
 
   try {
-    localStorage.setItem("edulens-theme", nextTheme);
+    const inputs = getInputs();
+    const score = calculateScore(inputs);
+    const contributions = calculateContributions(inputs);
+
+    const record = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      date: new Date().toISOString(),
+      inputs,
+      score,
+      category: getCategory(score),
+      suggestions: getSuggestions(inputs, score),
+      contributions
+    };
+
+    showResult(record);
+
+    const history = readHistory();
+    history.unshift(record);
+    saveHistory(history);
+    renderHistory();
+
   } catch (error) {
-    // Theme switching still works without persistent storage.
+    errorBox.textContent = error.message || "Please check the entered details.";
+    errorBox.hidden = false;
   }
 });
+
+document.getElementById("clearBtn").addEventListener("click", () => {
+  form.reset();
+  errorBox.hidden = true;
+});
+
+document.getElementById("history").addEventListener("click", event => {
+  const button = event.target.closest("[data-id]");
+  if (button) openHistory(button.dataset.id);
+});
+
+document.getElementById("clearHistoryBtn").addEventListener("click", () => {
+  if (!readHistory().length) return;
+
+  if (confirm("Delete all previous assessments saved in this browser?")) {
+    localStorage.removeItem(HISTORY_KEY);
+    renderHistory();
+  }
+});
+
+function closeModal() {
+  document.getElementById("modal").hidden = true;
+}
+
+document.getElementById("closeModal").addEventListener("click", closeModal);
+document.getElementById("backdrop").addEventListener("click", closeModal);
+
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape") closeModal();
+});
+
+const themeBtn = document.getElementById("themeBtn");
+
+function applyTheme(theme) {
+  document.body.classList.toggle("light", theme === "light");
+  themeBtn.textContent = theme === "light" ? "☾" : "☼";
+}
+
+applyTheme(localStorage.getItem(THEME_KEY) || "dark");
+
+themeBtn.addEventListener("click", () => {
+  const next = document.body.classList.contains("light") ? "dark" : "light";
+  localStorage.setItem(THEME_KEY, next);
+  applyTheme(next);
+});
+
+renderHistory();
