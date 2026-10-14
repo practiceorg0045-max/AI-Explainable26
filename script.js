@@ -4,7 +4,7 @@
    ========================================= */
 
 // Local Flask API. Change this URL when your backend is hosted.
-const API_URL = "http://127.0.0.1:5000";
+const API_URL = "https://edulens-api-tqge.onrender.com";
 
 const form = document.getElementById("predictionForm");
 const button = document.getElementById("predictButton");
