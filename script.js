@@ -1,401 +1,614 @@
 
-"use strict";
+const $ = (id) => document.getElementById(id);
 
-const HISTORY_KEY = "edulens_history_v4";
-const THEME_KEY = "edulens_theme_v1";
+const STORAGE_KEY = "explainable_ai_history_v3";
+const THEME_KEY = "explainable_ai_theme_v3";
 
-const form = document.getElementById("studentForm");
-const errorBox = document.getElementById("error");
-const predictBtn = document.getElementById("predictBtn");
-
-const limits = {
-  study: [0, 10],
-  attendance: [0, 100],
-  previous: [0, 100],
-  assignment: [0, 100],
-  sleep: [0, 24]
-};
-
-function getInputs() {
-  const studentName = document.getElementById("studentName").value.trim();
-
-  if (!studentName) {
-    throw new Error("Please enter the student's name.");
+const featureConfig = [
+  {
+    id: "attendance",
+    label: "Attendance",
+    reference: 75,
+    weight: 0.15
+  },
+  {
+    id: "previous",
+    label: "Previous marks",
+    reference: 60,
+    weight: 0.40
+  },
+  {
+    id: "study",
+    label: "Study hours",
+    reference: 3,
+    weight: 3.00
+  },
+  {
+    id: "assignment",
+    label: "Assignment marks",
+    reference: 60,
+    weight: 0.20
+  },
+  {
+    id: "sleep",
+    label: "Sleep hours",
+    reference: 7,
+    weight: 1.00
+  },
+  {
+    id: "participation",
+    label: "Participation",
+    reference: 60,
+    weight: 0.10
   }
+];
 
-  const values = { studentName };
+let toastTimeout;
 
-  for (const [key, [min, max]] of Object.entries(limits)) {
-    const input = document.getElementById(key);
+/* Read locally saved prediction records. */
+function getHistory() {
+  try {
+    const value = JSON.parse(
+      localStorage.getItem(STORAGE_KEY) || "[]"
+    );
 
-    if (input.value.trim() === "") {
-      throw new Error("Please complete all student details.");
-    }
+    return Array.isArray(value) ? value : [];
+  } catch {
+    return [];
+  }
+}
 
-    const value = Number(input.value);
+/* Save a maximum of 50 records in this browser. */
+function saveHistory(items) {
+  try {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify(items.slice(0, 50))
+    );
 
-    if (!Number.isFinite(value) || value < min || value > max) {
-      throw new Error(`Please enter a valid ${key} value between ${min} and ${max}.`);
-    }
+    return true;
+  } catch {
+    showToast("Browser storage is unavailable. The result may not be saved.");
+    return false;
+  }
+}
 
-    values[key] = value;
+/* Display a temporary notification. */
+function showToast(message) {
+  const toast = $("toast");
+
+  toast.textContent = message;
+  toast.classList.add("show");
+
+  clearTimeout(toastTimeout);
+
+  toastTimeout = setTimeout(() => {
+    toast.classList.remove("show");
+  }, 3000);
+}
+
+/* Read the student inputs. */
+function getStudentInputs() {
+  const values = {};
+
+  for (const feature of featureConfig) {
+    values[feature.id] = Number($(feature.id).value);
   }
 
   return values;
 }
 
 /*
-  Browser-only rule-based calculation.
-  This is not a trained machine-learning model.
+  SCORE CALCULATION
+
+  This is a predefined weighted formula.
+  It is not a trained Random Forest or XGBoost model.
+  The weights are illustrative and have not been learned
+  from a validated student-performance dataset.
 */
-function calculateScore(v) {
-  const raw =
-    0.80 * v.previous +
-    0.15 * v.assignment +
-    0.12 * v.attendance +
-    1.50 * v.study +
-    0.80 * v.sleep -
+function calculateScore(values) {
+  const score =
+    0.15 * values.attendance +
+    0.40 * values.previous +
+    3.00 * values.study +
+    0.20 * values.assignment +
+    1.00 * values.sleep +
+    0.10 * values.participation -
     19.18;
 
-  return Math.max(0, Math.min(100, raw));
+  const boundedScore = Math.max(
+    0,
+    Math.min(100, score)
+  );
+
+  return Math.round(boundedScore);
 }
 
+/*
+  FEATURE CONTRIBUTIONS
+
+  Each contribution shows the difference between the
+  input value and its reference value multiplied by
+  the formula weight.
+
+  These are formula contributions, not SHAP values.
+*/
+function calculateContributions(values) {
+  return featureConfig.map(feature => ({
+    label: feature.label,
+    value:
+      feature.weight *
+      (values[feature.id] - feature.reference)
+  }));
+}
+
+/* Categorize the estimated score. */
 function getCategory(score) {
-  if (score >= 80) return "Excellent";
-  if (score >= 65) return "Good";
-  if (score >= 50) return "Average";
-  return "Needs Improvement";
+  if (score >= 80) {
+    return {
+      label: "Excellent",
+      message: "A strong estimated academic outcome."
+    };
+  }
+
+  if (score >= 65) {
+    return {
+      label: "Good",
+      message: "A positive estimated academic outcome."
+    };
+  }
+
+  if (score >= 50) {
+    return {
+      label: "Average",
+      message: "There may be opportunities for further improvement."
+    };
+  }
+
+  return {
+    label: "Needs Support",
+    message: "Consider reviewing learning needs and support options."
+  };
 }
 
-function getSuggestions(v, score) {
+/* Generate suggestions based on the entered values. */
+function getSuggestions(values, score) {
   const suggestions = [];
 
-  if (v.study < 2) {
-    suggestions.push("Build a consistent daily study routine and gradually increase focused study time.");
-  } else if (v.study < 4) {
-    suggestions.push("Use structured study sessions with short breaks to improve concentration.");
-  } else {
-    suggestions.push("Maintain your study routine and practise questions to reinforce learning.");
+  if (values.attendance < 75) {
+    suggestions.push(
+      "Discuss attendance barriers and explore ways to improve class participation."
+    );
   }
 
-  if (v.attendance < 75) {
-    suggestions.push("Improve class attendance and review any missed lessons.");
-  } else {
-    suggestions.push("Maintain regular attendance and participate actively in class.");
+  if (values.previous < 60) {
+    suggestions.push(
+      "Review earlier examination mistakes and prepare a focused revision plan."
+    );
   }
 
-  if (v.previous < 50) {
-    suggestions.push("Review foundational topics and practise previous examination questions.");
+  if (values.study < 3) {
+    suggestions.push(
+      "Try a consistent, manageable daily study schedule with short breaks."
+    );
   }
 
-  if (v.assignment < 60) {
-    suggestions.push("Review assignment feedback and focus on accuracy and timely submission.");
+  if (values.assignment < 60) {
+    suggestions.push(
+      "Review assignment feedback and practise the topics that need more attention."
+    );
   }
 
-  if (v.sleep < 7) {
-    suggestions.push("Consider a consistent sleep routine that allows sufficient rest.");
-  } else if (v.sleep > 9) {
-    suggestions.push("Review your daily routine and sleep quality if excessive sleep affects your study time.");
+  if (values.sleep < 7) {
+    suggestions.push(
+      "Consider a regular sleep routine that supports adequate rest."
+    );
   }
 
-  if (score >= 80) {
-    suggestions.push("Challenge yourself with advanced questions and continue tracking progress.");
+  if (values.participation < 60) {
+    suggestions.push(
+      "Explore ways to ask questions and participate more comfortably in class."
+    );
+  }
+
+  if (suggestions.length === 0) {
+    suggestions.push(
+      "Maintain consistent study habits and review progress regularly."
+    );
+
+    suggestions.push(
+      "Set a realistic learning goal and discuss feedback with a teacher."
+    );
+  }
+
+  if (score < 50) {
+    suggestions.unshift(
+      "Discuss the student's individual learning needs with a teacher before choosing interventions."
+    );
   }
 
   return suggestions.slice(0, 5);
 }
 
 /*
-  These are contributions from the formula, not actual SHAP/LIME values.
+  Draw a horizontal feature-contribution chart.
+
+  Both explanation views use the formula's contributions.
+  Neither view runs the SHAP or LIME algorithms.
 */
-function calculateContributions(v) {
-  return [
-    { name: "Previous exam score", value: 0.80 * (v.previous - 50) },
-    { name: "Assignment score", value: 0.15 * (v.assignment - 50) },
-    { name: "Daily study hours", value: 1.50 * (v.study - 4) },
-    { name: "Attendance", value: 0.12 * (v.attendance - 70) },
-    { name: "Daily sleep hours", value: 0.80 * (v.sleep - 7) }
-  ];
-}
+function renderBars(targetId, contributions) {
+  const target = $(targetId);
 
-function escapeHTML(value) {
-  return String(value ?? "").replace(/[&<>"']/g, char => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#039;"
-  })[char]);
-}
+  target.replaceChildren();
 
-function renderChart(elementId, items) {
-  const element = document.getElementById(elementId);
+  const sorted = [...contributions].sort(
+    (a, b) => Math.abs(b.value) - Math.abs(a.value)
+  );
 
-  if (!Array.isArray(items) || !items.length) {
-    element.classList.add("empty-chart");
-    element.textContent = "No contribution data available.";
-    return;
-  }
+  const maxValue = Math.max(
+    1,
+    ...sorted.map(item => Math.abs(item.value))
+  );
 
-  const maxValue = Math.max(...items.map(item => Math.abs(item.value)), 0.001);
-  element.classList.remove("empty-chart");
+  for (const item of sorted) {
+    const row = document.createElement("div");
+    row.className = "bar-item";
 
-  element.innerHTML = [...items]
-    .sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
-    .map(item => {
-      const positive = item.value >= 0;
-      const width = Math.max(2, Math.abs(item.value) / maxValue * 100);
+    const label = document.createElement("span");
+    label.className = "bar-label";
+    label.textContent = item.label;
 
-      return `
-        <div class="chart-row">
-          <div class="chart-header">
-            <span>${escapeHTML(item.name)}</span>
-            <strong style="color:var(--${positive ? "green" : "red"})">
-              ${positive ? "+" : ""}${item.value.toFixed(2)}
-            </strong>
-          </div>
-          <div class="chart-track">
-            <div class="chart-bar ${positive ? "positive" : "negative"}"
-                 style="width:${width}%"></div>
-          </div>
-        </div>
-      `;
-    }).join("");
-}
+    const track = document.createElement("div");
+    track.className = "bar-track";
 
-function readHistory() {
-  try {
-    const data = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
-    return Array.isArray(data) ? data : [];
-  } catch (_) {
-    return [];
+    const fill = document.createElement("div");
+
+    fill.className =
+      "bar-fill " +
+      (item.value >= 0 ? "positive" : "negative");
+
+    const width = Math.max(
+      3,
+      (Math.abs(item.value) / maxValue) * 100
+    );
+
+    fill.style.width = `${width}%`;
+
+    track.appendChild(fill);
+
+    const value = document.createElement("span");
+    value.className = "bar-value";
+
+    value.textContent =
+      `${item.value >= 0 ? "+" : "−"}${Math.abs(item.value).toFixed(1)}`;
+
+    row.append(label, track, value);
+    target.appendChild(row);
   }
 }
 
-function saveHistory(data) {
-  try {
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(data.slice(0, 50)));
-    return true;
-  } catch (_) {
-    errorBox.textContent = "The assessment was calculated, but browser storage is unavailable.";
-    errorBox.hidden = false;
-    return false;
+/* Display the prediction, chart values and recommendations. */
+function renderPrediction(result) {
+  $("emptyState").hidden = true;
+  $("predictionOutput").hidden = false;
+
+  $("resultName").textContent =
+    `Student: ${result.name}`;
+
+  $("scoreValue").textContent = result.score;
+  $("resultCategory").textContent = result.category;
+  $("resultMessage").textContent = result.message;
+
+  $("resultPanel").querySelector(".status-pill").textContent =
+    "Prediction generated";
+
+  let ringColor;
+
+  if (result.score >= 65) {
+    ringColor = "var(--green)";
+  } else if (result.score >= 50) {
+    ringColor = "var(--orange)";
+  } else {
+    ringColor = "var(--red)";
   }
+
+  $("scoreRing").style.background =
+    `conic-gradient(${ringColor} ${result.score}%, var(--surface2) ${result.score}%)`;
+
+  /* Render personalized suggestions safely. */
+  const suggestionList = $("suggestions");
+  suggestionList.replaceChildren();
+
+  for (const suggestion of result.suggestions) {
+    const li = document.createElement("li");
+    li.textContent = suggestion;
+    suggestionList.appendChild(li);
+  }
+
+  /* Render feature contributions in both explanation views. */
+  renderBars("shapChart", result.contributions);
+  renderBars("limeChart", result.contributions);
+
+  /* Explain the largest positive and negative contributions. */
+  const positive = [...result.contributions]
+    .filter(item => item.value > 0)
+    .sort((a, b) => b.value - a.value);
+
+  const negative = [...result.contributions]
+    .filter(item => item.value < 0)
+    .sort((a, b) => a.value - b.value);
+
+  let explanation =
+    "The charts show how the predefined scoring formula responds to the entered student information.";
+
+  if (positive.length && negative.length) {
+    explanation =
+      `${positive[0].label} raises the calculated score the most relative to its reference value, while ${negative[0].label} lowers it the most. These are formula effects, not causal findings or calculated SHAP/LIME values.`;
+  } else if (positive.length) {
+    explanation =
+      `${positive[0].label} raises the calculated score the most relative to its reference value. No feature has a negative contribution relative to its reference value in this calculation.`;
+  } else if (negative.length) {
+    explanation =
+      `${negative[0].label} lowers the calculated score the most relative to its reference value. No feature has a positive contribution relative to its reference value in this calculation.`;
+  }
+
+  $("explanationText").textContent = explanation;
 }
 
-function showResult(record) {
-  document.getElementById("emptyResult").hidden = true;
-  document.getElementById("result").hidden = false;
-
-  document.getElementById("displayStudentName").textContent =
-    record.inputs.studentName;
-
-  document.getElementById("score").textContent = record.score.toFixed(1);
-  document.getElementById("category").textContent = record.category;
-  document.getElementById("resultMessage").textContent =
-    "Calculated from the student information entered.";
-
-  document.getElementById("resultDate").textContent =
-    new Date(record.date).toLocaleString();
-
-  document.getElementById("scoreTrack").style.width = `${record.score}%`;
-  document.getElementById("scoreRing").style.background =
-    `conic-gradient(var(--accent) ${record.score * 3.6}deg, var(--border) 0deg)`;
-
-  const suggestions = document.getElementById("suggestions");
-
-  suggestions.innerHTML = record.suggestions.map(text => `
-    <div class="suggestion">
-      <span class="check">✓</span>
-      <p>${escapeHTML(text)}</p>
-    </div>
-  `).join("");
-
-  renderChart("shapChart", record.contributions);
-
-  // A local contribution view, not the LIME algorithm.
-  renderChart("limeChart", record.contributions.map(item => ({
-    name: item.name,
-    value: item.value * 0.85
-  })));
-}
-
-function formatDate(value) {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? "Unknown date"
-    : date.toLocaleString();
-}
-
+/* Display saved records in the history table. */
 function renderHistory() {
-  const history = readHistory();
-  const element = document.getElementById("history");
+  const history = getHistory();
 
-  if (!history.length) {
-    element.innerHTML = '<p class="muted">No assessments recorded yet.</p>';
+  $("historyCount").textContent = history.length;
+
+  const body = $("historyBody");
+  body.replaceChildren();
+
+  if (history.length === 0) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+
+    cell.colSpan = 4;
+    cell.className = "history-empty";
+    cell.textContent = "No predictions saved yet.";
+
+    row.appendChild(cell);
+    body.appendChild(row);
+
     return;
   }
 
-  element.innerHTML = history.map(record => `
-    <div class="history-row">
-      <div>
-        <h3>${escapeHTML(record.inputs.studentName)}</h3>
-        <p>${escapeHTML(record.category)} · ${escapeHTML(formatDate(record.date))}</p>
-      </div>
-      <div class="history-score">
-        ${Number(record.score).toFixed(1)}<span class="muted"> /100</span>
-      </div>
-      <button type="button" class="view-btn"
-              data-id="${escapeHTML(record.id)}">View result →</button>
-    </div>
-  `).join("");
+  for (const item of history) {
+    const row = document.createElement("tr");
+
+    const name = document.createElement("td");
+    name.textContent = item.name;
+
+    const score = document.createElement("td");
+    score.textContent = `${item.score}/100`;
+
+    const category = document.createElement("td");
+    const tag = document.createElement("span");
+
+    tag.className = "category-tag";
+    tag.textContent = item.category;
+
+    category.appendChild(tag);
+
+    const date = document.createElement("td");
+    const parsedDate = new Date(item.date);
+
+    date.textContent = Number.isNaN(parsedDate.getTime())
+      ? "Unknown"
+      : parsedDate.toLocaleString();
+
+    row.append(name, score, category, date);
+    body.appendChild(row);
+  }
 }
 
-function openHistory(id) {
-  const record = readHistory().find(item => item.id === id);
-  if (!record) return;
+/* Handle the student prediction form. */
+$("studentForm").addEventListener("submit", event => {
+  event.preventDefault();
 
-  const v = record.inputs;
+  const form = $("studentForm");
 
-  const details = [
-    ["Student name", v.studentName],
-    ["Daily study hours", v.study],
-    ["Attendance", `${v.attendance}%`],
-    ["Previous exam score", v.previous],
-    ["Assignment score", v.assignment],
-    ["Daily sleep hours", v.sleep]
+  if (!form.reportValidity()) {
+    return;
+  }
+
+  const name = $("studentName").value.trim();
+
+  if (!name) {
+    showToast("Please enter the student's name.");
+    $("studentName").focus();
+    return;
+  }
+
+  const values = getStudentInputs();
+
+  const ranges = {
+    attendance: [0, 100],
+    previous: [0, 100],
+    study: [0, 16],
+    assignment: [0, 100],
+    sleep: [0, 16],
+    participation: [0, 100]
+  };
+
+  for (const [key, range] of Object.entries(ranges)) {
+    const [min, max] = range;
+
+    if (
+      !Number.isFinite(values[key]) ||
+      values[key] < min ||
+      values[key] > max
+    ) {
+      showToast(`Please enter a valid value for ${key}.`);
+      $(key).focus();
+      return;
+    }
+  }
+
+  const score = calculateScore(values);
+  const categoryInfo = getCategory(score);
+  const contributions = calculateContributions(values);
+
+  const result = {
+    name,
+    values,
+    score,
+    category: categoryInfo.label,
+    message: categoryInfo.message,
+    contributions,
+    suggestions: getSuggestions(values, score),
+    date: new Date().toISOString()
+  };
+
+  renderPrediction(result);
+
+  const history = getHistory();
+  history.unshift(result);
+
+  saveHistory(history);
+  renderHistory();
+
+  $("resultPanel").scrollIntoView({
+    behavior: "smooth",
+    block: "center"
+  });
+
+  showToast("Student prediction generated successfully.");
+});
+
+/* Clear the form and reset the current result display. */
+$("resetBtn").addEventListener("click", () => {
+  setTimeout(() => {
+    $("predictionOutput").hidden = true;
+    $("emptyState").hidden = false;
+
+    $("resultPanel").querySelector(".status-pill").textContent =
+      "Awaiting input";
+
+    $("scoreRing").style.background =
+      "conic-gradient(var(--green) 0%, var(--surface2) 0%)";
+
+    $("shapChart").replaceChildren();
+    $("limeChart").replaceChildren();
+
+    const shapEmpty = document.createElement("p");
+    shapEmpty.className = "chart-empty";
+    shapEmpty.textContent = "Generate a prediction to see the chart.";
+
+    const limeEmpty = document.createElement("p");
+    limeEmpty.className = "chart-empty";
+    limeEmpty.textContent = "Generate a prediction to see the chart.";
+
+    $("shapChart").appendChild(shapEmpty);
+    $("limeChart").appendChild(limeEmpty);
+
+    $("explanationText").textContent =
+      "Submit a student profile to see which inputs raise or lower the calculated score relative to their reference values.";
+  }, 0);
+});
+
+/* Delete locally saved prediction history. */
+$("clearHistoryBtn").addEventListener("click", () => {
+  if (getHistory().length === 0) {
+    showToast("There is no history to clear.");
+    return;
+  }
+
+  const confirmed = confirm(
+    "Delete all saved prediction records from this browser?"
+  );
+
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+    renderHistory();
+    showToast("Prediction history cleared.");
+  } catch {
+    showToast("Could not clear the saved history.");
+  }
+});
+
+/* Export saved records as a CSV file. */
+$("exportBtn").addEventListener("click", () => {
+  const history = getHistory();
+
+  if (history.length === 0) {
+    showToast("Generate a prediction before exporting history.");
+    return;
+  }
+
+  const columns = [
+    "Student",
+    "Estimated Score",
+    "Category",
+    "Date"
   ];
 
-  document.getElementById("modalBody").innerHTML = `
-    <p><strong>${escapeHTML(v.studentName)}</strong></p>
-    <p class="muted">${escapeHTML(formatDate(record.date))}</p>
-    <p><strong>${Number(record.score).toFixed(1)} / 100</strong> — ${escapeHTML(record.category)}</p>
+  const escapeCSV = value =>
+    `"${String(value ?? "").replace(/"/g, '""')}"`;
 
-    <h3>Student details</h3>
-    <div class="modal-grid">
-      ${details.map(([label, value]) => `
-        <div class="modal-item">
-          <span>${escapeHTML(label)}</span>
-          <strong>${escapeHTML(value)}</strong>
-        </div>
-      `).join("")}
-    </div>
+  const rows = history.map(item => [
+    item.name,
+    item.score,
+    item.category,
+    item.date
+  ]);
 
-    <h3>Suggested improvements</h3>
-    <ul>
-      ${record.suggestions.map(s => `<li>${escapeHTML(s)}</li>`).join("")}
-    </ul>
+  const csv = [columns, ...rows]
+    .map(row => row.map(escapeCSV).join(","))
+    .join("\r\n");
 
-    <h3>Feature contributions</h3>
-    <p class="muted">Formula-based contributions, not actual SHAP or LIME algorithm output.</p>
-    <div id="modalChart" class="chart"></div>
-  `;
+  const blob = new Blob(
+    ["\uFEFF" + csv],
+    { type: "text/csv;charset=utf-8;" }
+  );
 
-  renderChart("modalChart", record.contributions);
-  document.getElementById("modal").hidden = false;
-}
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
 
-function closeModal() {
-  document.getElementById("modal").hidden = true;
-}
+  link.href = url;
+  link.download = "student-performance-history.csv";
 
-form.addEventListener("submit", event => {
-  event.preventDefault();
-  errorBox.hidden = true;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
 
-  let inputs;
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+  showToast("CSV export prepared.");
+});
+
+/* Switch between dark and light themes. */
+$("themeBtn").addEventListener("click", () => {
+  document.body.classList.toggle("light");
+
+  const theme = document.body.classList.contains("light")
+    ? "light"
+    : "dark";
 
   try {
-    inputs = getInputs();
-  } catch (error) {
-    errorBox.textContent = error.message;
-    errorBox.hidden = false;
-    return;
-  }
-
-  predictBtn.disabled = true;
-  predictBtn.innerHTML = "Generating prediction...";
-
-  try {
-    const score = calculateScore(inputs);
-
-    const record = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      date: new Date().toISOString(),
-      inputs,
-      score,
-      category: getCategory(score),
-      suggestions: getSuggestions(inputs, score),
-      contributions: calculateContributions(inputs)
-    };
-
-    showResult(record);
-
-    const history = readHistory();
-    history.unshift(record);
-    saveHistory(history);
-    renderHistory();
-
-    /*
-      Smoothly move the page to the result after prediction.
-      The result panel is on the right on desktop and below
-      the form on smaller screens.
-    */
-    requestAnimationFrame(() => {
-      document.getElementById("resultSection").scrollIntoView({
-        behavior: "smooth",
-        block: "start"
-      });
-    });
-
-  } catch (error) {
-    errorBox.textContent = error.message || "Something went wrong.";
-    errorBox.hidden = false;
-  } finally {
-    predictBtn.disabled = false;
-    predictBtn.innerHTML = 'Generate prediction <span>→</span>';
+    localStorage.setItem(THEME_KEY, theme);
+  } catch {
+    showToast("Theme changed for this session.");
   }
 });
 
-document.getElementById("clearBtn").addEventListener("click", () => {
-  form.reset();
-  errorBox.hidden = true;
-});
-
-document.getElementById("history").addEventListener("click", event => {
-  const button = event.target.closest("[data-id]");
-  if (button) openHistory(button.dataset.id);
-});
-
-document.getElementById("clearHistoryBtn").addEventListener("click", () => {
-  if (!readHistory().length) return;
-
-  if (confirm("Delete all previous assessments saved in this browser?")) {
-    localStorage.removeItem(HISTORY_KEY);
-    renderHistory();
+/* Restore the saved theme when the page loads. */
+try {
+  if (localStorage.getItem(THEME_KEY) === "light") {
+    document.body.classList.add("light");
   }
-});
-
-document.getElementById("closeModal").addEventListener("click", closeModal);
-document.getElementById("backdrop").addEventListener("click", closeModal);
-
-document.addEventListener("keydown", event => {
-  if (event.key === "Escape") closeModal();
-});
-
-const themeBtn = document.getElementById("themeBtn");
-
-function applyTheme(theme) {
-  document.body.classList.toggle("light", theme === "light");
-  themeBtn.textContent = theme === "light" ? "☾" : "☼";
+} catch {
+  // The default dark theme remains available.
 }
 
-applyTheme(localStorage.getItem(THEME_KEY) || "dark");
-
-themeBtn.addEventListener("click", () => {
-  const next = document.body.classList.contains("light") ? "dark" : "light";
-  localStorage.setItem(THEME_KEY, next);
-  applyTheme(next);
-});
-
+/* Load the saved prediction history. */
 renderHistory();
